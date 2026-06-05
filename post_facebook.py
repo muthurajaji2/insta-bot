@@ -1,9 +1,10 @@
 """
-Facebook Auto-Poster for iLovekaraikudi page.
-Posts 8x daily about Karaikudi culture, history, heritage,
-famous people, Kollywood stars, quotes, food, and local pride.
+Facebook Auto-Poster for iLovekaraikudi.
+Claude generates caption + search keyword.
+Unsplash finds a relevant matching image.
+Posts to Facebook Page via Graph API.
 """
-import os, sys, json, time, requests, random
+import os, sys, json, time, requests
 from datetime import datetime, timezone
 
 FB_PAGE_ID    = os.environ.get("FB_PAGE_ID", "")
@@ -14,87 +15,69 @@ POST_SLOT     = os.environ.get("POST_SLOT", "1")
 BASE_FB  = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}"
 LOG_FILE = "post_log.json"
 
-# 8 different content themes for each slot
 SLOT_THEMES = {
     "1": {
-        "topic": "Karaikudi morning and daily life",
-        "style": "warm morning greeting celebrating Karaikudi culture",
-        "example": "Good morning from the heart of Chettinad! Start your day with the pride of Karaikudi.",
+        "topic": "Karaikudi morning and daily life culture",
+        "image_search": "Tamil Nadu village morning temple",
     },
     "2": {
         "topic": "Karaikudi heritage architecture and Chettinad mansions",
-        "style": "informative and proud post about the famous Chettinad palatial homes and their architecture",
-        "example": "The grand Chettinad mansions of Karaikudi are a testament to the prosperity and artistry of our ancestors.",
+        "image_search": "Chettinad mansion palace architecture heritage",
     },
     "3": {
         "topic": "Karaikudi famous food and Chettinad cuisine",
-        "style": "mouth-watering celebration of Chettinad food — Kavuni Arisi, Chettinad Chicken, Paniyaram, Kalkandu Pongal",
-        "example": "Chettinad cuisine is world-famous for its bold spices and unique flavors that you can only truly taste in Karaikudi.",
+        "image_search": "Chettinad food spices South Indian cuisine",
     },
     "4": {
-        "topic": "Notable person or celebrity born in or connected to Karaikudi or Chettinad region",
-        "style": "celebratory tribute post — choose from: Raja Sir Annamalai Chettiar, M.A. Chidambaram, Sivaji Ganesan connection, filmmaker K. Balachander, cricketer WV Raman, or other Chettinad personalities",
-        "example": "Did you know? The legendary cricketer WV Raman has roots in our beloved Chettinad region!",
+        "topic": "Notable person or celebrity born in or connected to Karaikudi or Chettinad",
+        "image_search": "Tamil Nadu heritage culture famous landmark",
     },
     "5": {
-        "topic": "Fun interactive question for Karaikudi locals and fans to answer in comments",
-        "style": "highly engaging question post that makes people from Karaikudi feel nostalgic and comment — ask about favourite food, childhood memories, best places, local experiences, hidden gems, or fun facts about Karaikudi",
-        "example": "What is the one Karaikudi dish you could eat every single day and never get tired of? Drop your answer below! 👇",
+        "topic": "Fun interactive question for Karaikudi locals and fans to answer",
+        "image_search": "Karaikudi street market Tamil Nadu local life",
     },
     "6": {
-        "topic": "Karaikudi temples, art, and cultural festivals",
-        "style": "devotional and cultural post about local temples like Pillaiyarpatti, festivals, Kolam art, Villu Pattu",
-        "example": "The Pillaiyarpatti Karpaga Vinayagar temple is not just a place of worship — it is the soul of Karaikudi.",
+        "topic": "Karaikudi temples art and cultural festivals",
+        "image_search": "South India Hindu temple festival Tamil Nadu",
     },
     "7": {
-        "topic": "Kollywood or Tamil cinema connection to Karaikudi or Chettinad",
-        "style": "fun and engaging post about Tamil movies filmed in Karaikudi, actors with Chettinad roots, or cinema references",
-        "example": "Karaikudi's stunning Chettinad mansions have been the backdrop for countless Tamil blockbusters!",
+        "topic": "Kollywood Tamil cinema connection to Karaikudi and Chettinad",
+        "image_search": "Tamil cinema vintage film South India",
     },
     "8": {
-        "topic": "Inspirational quote or pride post about Karaikudi",
-        "style": "motivational evening post celebrating Karaikudi identity and Tamil pride, with a powerful quote or thought",
-        "example": "To be from Karaikudi is to carry centuries of culture, resilience, and greatness in your heart.",
+        "topic": "Inspirational quote and pride post about Karaikudi Tamil culture",
+        "image_search": "Tamil Nadu sunset landscape heritage pride",
     },
-}
-
-# Beautiful Chettinad/Tamil Nadu related Picsum images
-SLOT_PHOTO_IDS = {
-    "1": [168, 200, 110, 167, 190, 137, 15, 96],
-    "2": [401, 402, 403, 404, 405, 406, 407, 408],
-    "3": [292, 312, 326, 337, 351, 360, 374, 387],
-    "4": [91, 103, 119, 141, 160, 177, 193, 213],
-    "5": [230, 244, 258, 271, 283, 295, 308, 321],
-    "6": [334, 347, 361, 375, 389, 392, 398, 412],
-    "7": [420, 433, 447, 461, 475, 488, 502, 516],
-    "8": [529, 543, 557, 571, 585, 598, 612, 626],
 }
 
 def log(msg):
     print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] {msg}")
 
-def generate_caption(slot):
+def generate_caption_and_keywords(slot):
     theme = SLOT_THEMES.get(slot, SLOT_THEMES["1"])
     log(f"Generating post for slot {slot}: {theme['topic']}")
 
-    prompt = f"""You are the content creator for the Facebook page 'iLovekaraikudi' — a page celebrating Karaikudi, Chettinad, and Tamil culture.
+    prompt = f"""You are the content creator for the Facebook page 'iLovekaraikudi' — celebrating Karaikudi, Chettinad, and Tamil culture.
 
 Write ONE engaging Facebook post about: {theme['topic']}
 
-Style: {theme['style']}
-
-Example tone: {theme['example']}
-
 Requirements:
-- Write in English (you can include 1-2 Tamil words with meaning)
+- Write in English (include 1-2 Tamil words with meaning where natural)
 - 3-5 sentences, warm and proud tone
 - Include 2-3 relevant emojis
-- End with 4-6 relevant hashtags like #Karaikudi #Chettinad #TamilCulture #iLoveKaraikudi
-- Feel authentic, like a local person who deeply loves Karaikudi
-- Include a specific fact, name, or detail about Karaikudi — not generic
+- End with 4-6 hashtags like #Karaikudi #Chettinad #TamilCulture #iLoveKaraikudi
+- Include a specific fact, name, or detail about Karaikudi
+- Feel authentic like a local who deeply loves Karaikudi
 - Do NOT start with "Here is" or any preamble
 
-Return ONLY the post text."""
+After the post, on a NEW LINE write exactly:
+IMAGE_KEYWORDS: [3-5 specific keywords for finding a relevant photo for this post]
+
+Example format:
+Good morning from Karaikudi! ☀️ ...post text...
+#Karaikudi #Chettinad
+
+IMAGE_KEYWORDS: Chettinad temple morning Tamil Nadu"""
 
     r = requests.post(
         "https://api.anthropic.com/v1/messages",
@@ -105,7 +88,7 @@ Return ONLY the post text."""
         },
         json={
             "model": "claude-opus-4-5",
-            "max_tokens": 400,
+            "max_tokens": 500,
             "messages": [{"role": "user", "content": prompt}],
         },
         timeout=30,
@@ -114,28 +97,53 @@ Return ONLY the post text."""
         log(f"Anthropic error: {r.status_code} - {r.text}")
         r.raise_for_status()
 
-    caption = r.json()["content"][0]["text"].strip()
-    log(f"Caption: {caption[:100]}...")
-    return caption
+    full_text = r.json()["content"][0]["text"].strip()
 
-def get_image_url(slot):
-    log("Getting image from Picsum...")
-    photo_ids = SLOT_PHOTO_IDS.get(slot, [10, 20, 30])
-    day_of_year = int(datetime.now(timezone.utc).strftime("%j"))
-    photo_id = photo_ids[day_of_year % len(photo_ids)]
+    # Split caption and image keywords
+    if "IMAGE_KEYWORDS:" in full_text:
+        parts = full_text.split("IMAGE_KEYWORDS:")
+        caption = parts[0].strip()
+        keywords = parts[1].strip()
+    else:
+        caption = full_text
+        keywords = theme["image_search"]
 
-    # Try the selected ID first, fallback to safe IDs if needed
-    for pid in [photo_id, 10, 15, 20, 25, 30]:
-        image_url = f"https://picsum.photos/id/{pid}/1200/630"
-        try:
-            r = requests.get(image_url, timeout=20, allow_redirects=True)
-            if r.status_code == 200:
-                log(f"Image ready (ID: {pid}): {r.url[:70]}...")
-                return r.url
-        except:
-            continue
+    log(f"Caption: {caption[:80]}...")
+    log(f"Image keywords: {keywords}")
+    return caption, keywords
 
-    raise RuntimeError("Could not get any image from Picsum")
+def get_relevant_image(keywords, slot):
+    """
+    Fetch a relevant image from Unsplash using keywords.
+    Unsplash source gives a direct image URL matching the search term.
+    """
+    log(f"Fetching relevant image for: {keywords}")
+
+    # Unsplash Source API — free, no key needed, returns topic-matched image
+    safe_keywords = requests.utils.quote(keywords)
+    seed = int(slot) * 100 + int(datetime.now(timezone.utc).strftime("%j"))
+
+    # Try Unsplash source first (free, topic-matched)
+    unsplash_url = f"https://source.unsplash.com/1200x630/?{safe_keywords}&sig={seed}"
+
+    try:
+        r = requests.get(unsplash_url, timeout=20, allow_redirects=True)
+        if r.status_code == 200 and "image" in r.headers.get("content-type", ""):
+            log(f"Got Unsplash image: {r.url[:80]}...")
+            return r.url
+    except Exception as e:
+        log(f"Unsplash failed: {e}, trying fallback...")
+
+    # Fallback: Picsum with slot-based seed
+    fallback_ids = [10, 15, 20, 25, 30, 37, 42, 48]
+    pid = fallback_ids[int(slot) - 1]
+    fallback_url = f"https://picsum.photos/id/{pid}/1200/630"
+    r = requests.get(fallback_url, timeout=20, allow_redirects=True)
+    if r.status_code == 200:
+        log(f"Using fallback image: {r.url[:80]}...")
+        return r.url
+
+    raise RuntimeError("Could not get any image")
 
 def post_to_facebook(caption, image_url):
     log("Posting to Facebook Page...")
@@ -157,7 +165,7 @@ def post_to_facebook(caption, image_url):
     log(f"Posted! ID: {data['id']}")
     return data["id"]
 
-def save_log(slot, status, post_id="", caption="", error=""):
+def save_log(slot, status, post_id="", caption="", keywords="", error=""):
     entries = []
     if os.path.exists(LOG_FILE):
         with open(LOG_FILE) as f:
@@ -169,6 +177,7 @@ def save_log(slot, status, post_id="", caption="", error=""):
         "status": status,
         "post_id": post_id,
         "caption_preview": caption[:120],
+        "image_keywords": keywords,
         "error": error,
     })
     with open(LOG_FILE, "w") as f:
@@ -188,15 +197,12 @@ def main():
         log(f"ERROR: Missing secrets: {', '.join(missing)}")
         sys.exit(1)
 
-    log(f"Page ID: {FB_PAGE_ID}")
-    log(f"API Key: sk-ant-...{ANTHROPIC_KEY[-6:]}")
-
     try:
-        caption   = generate_caption(POST_SLOT)
-        image_url = get_image_url(POST_SLOT)
-        post_id   = post_to_facebook(caption, image_url)
-        save_log(POST_SLOT, "success", post_id, caption)
-        print(f"\n✅  Slot {POST_SLOT} posted to iLoveKaraikudi page!\n")
+        caption, keywords = generate_caption_and_keywords(POST_SLOT)
+        image_url = get_relevant_image(keywords, POST_SLOT)
+        post_id = post_to_facebook(caption, image_url)
+        save_log(POST_SLOT, "success", post_id, caption, keywords)
+        print(f"\n✅  Slot {POST_SLOT} posted to iLoveKaraikudi!\n")
     except Exception as e:
         log(f"FAILED: {e}")
         save_log(POST_SLOT, "error", error=str(e))
