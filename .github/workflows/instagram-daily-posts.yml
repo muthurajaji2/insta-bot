@@ -1,24 +1,24 @@
-name: Instagram Daily 8 AI Posts
+name: Facebook Daily 8 AI Posts
 
 on:
   schedule:
-    - cron: '0 7 * * *'    # Slot 1 — 7:00 AM UTC
-    - cron: '0 9 * * *'    # Slot 2 — 9:00 AM UTC
-    - cron: '0 11 * * *'   # Slot 3 — 11:00 AM UTC
-    - cron: '0 13 * * *'   # Slot 4 — 1:00 PM UTC
-    - cron: '0 15 * * *'   # Slot 5 — 3:00 PM UTC
-    - cron: '0 17 * * *'   # Slot 6 — 5:00 PM UTC
-    - cron: '0 19 * * *'   # Slot 7 — 7:00 PM UTC
-    - cron: '0 21 * * *'   # Slot 8 — 9:00 PM UTC
+    - cron: '30 1 * * *'   # Slot 1 — 7:00 AM IST
+    - cron: '30 3 * * *'   # Slot 2 — 9:00 AM IST
+    - cron: '30 5 * * *'   # Slot 3 — 11:00 AM IST
+    - cron: '30 7 * * *'   # Slot 4 — 1:00 PM IST
+    - cron: '30 9 * * *'   # Slot 5 — 3:00 PM IST
+    - cron: '30 11 * * *'  # Slot 6 — 5:00 PM IST
+    - cron: '30 13 * * *'  # Slot 7 — 7:00 PM IST
+    - cron: '30 15 * * *'  # Slot 8 — 9:00 PM IST
   workflow_dispatch:
     inputs:
       slot:
-        description: 'Slot to run (1-8), or leave blank for auto'
+        description: 'Slot to run (1-8)'
         required: false
         default: 'auto'
 
 jobs:
-  post-to-instagram:
+  post-to-facebook:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,30 +39,29 @@ jobs:
           else
             HOUR=$(date -u +"%H" | sed 's/^0//')
             case "$HOUR" in
-              7)  SLOT=1 ;;
-              9)  SLOT=2 ;;
-              11) SLOT=3 ;;
-              13) SLOT=4 ;;
-              15) SLOT=5 ;;
-              17) SLOT=6 ;;
-              19) SLOT=7 ;;
-              21) SLOT=8 ;;
+              1)  SLOT=1 ;;
+              3)  SLOT=2 ;;
+              5)  SLOT=3 ;;
+              7)  SLOT=4 ;;
+              9)  SLOT=5 ;;
+              11) SLOT=6 ;;
+              13) SLOT=7 ;;
+              15) SLOT=8 ;;
               *)  SLOT=1 ;;
             esac
             echo "slot=$SLOT" >> $GITHUB_OUTPUT
           fi
-          echo "Running slot: $(grep slot $GITHUB_OUTPUT | cut -d= -f2)"
 
-      - name: Generate AI content + Post to Instagram
+      - name: Post to Facebook
         env:
-          IG_USER_ID:        ${{ secrets.IG_USER_ID }}
-          IG_ACCESS_TOKEN:   ${{ secrets.IG_ACCESS_TOKEN }}
+          FB_PAGE_ID:        ${{ secrets.FB_PAGE_ID }}
+          FB_PAGE_TOKEN:     ${{ secrets.FB_PAGE_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           INSTAGRAM_NICHE:   ${{ secrets.INSTAGRAM_NICHE }}
           POST_SLOT:         ${{ steps.slot.outputs.slot }}
-        run: python post_instagram.py
+        run: python post_facebook.py
 
-      - name: Upload activity log
+      - name: Upload log
         if: always()
         uses: actions/upload-artifact@v4
         with:
