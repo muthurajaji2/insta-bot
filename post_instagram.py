@@ -1,7 +1,8 @@
 """
 Instagram Auto-Poster with AI-generated captions + images.
+Uses Picsum for reliable free images, Claude for captions.
 """
-import os, sys, json, time, requests
+import os, sys, json, time, requests, random
 from datetime import datetime, timezone
 
 IG_USER_ID      = os.environ.get("IG_USER_ID", "")
@@ -24,6 +25,18 @@ SLOT_THEMES = {
     "8": "night wind-down, rest and tomorrow's mindset",
 }
 
+# Curated Picsum photo IDs by mood/theme (always free, always reachable)
+SLOT_PHOTO_IDS = {
+    "1": [10, 15, 96, 110, 137, 167, 190, 200],   # bright morning
+    "2": [20, 42, 56, 103, 153, 175, 211, 240],   # productive desk
+    "3": [37, 64, 82, 116, 144, 180, 219, 250],   # positive nature
+    "4": [30, 48, 75, 122, 158, 185, 225, 260],   # wellness food
+    "5": [25, 55, 88, 130, 163, 192, 230, 270],   # hustle energy
+    "6": [45, 68, 92, 135, 170, 198, 235, 280],   # evening city
+    "7": [52, 73, 98, 140, 176, 204, 242, 290],   # golden hour
+    "8": [60, 80, 105, 148, 182, 210, 248, 300],  # calm night
+}
+
 def log(msg):
     print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] {msg}")
 
@@ -43,86 +56,50 @@ def generate_caption(slot):
         f"Return ONLY the caption text."
     )
 
-    headers = {
-        "x-api-key": ANTHROPIC_KEY,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-    }
-
-    payload = {
-        "model": "claude-opus-4-5",
-        "max_tokens": 300,
-        "messages": [{"role": "user", "content": prompt}],
-    }
-
-    log(f"Calling Anthropic API...")
     r = requests.post(
         "https://api.anthropic.com/v1/messages",
-        headers=headers,
-        json=payload,
+        headers={
+            "x-api-key": ANTHROPIC_KEY,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        },
+        json={
+            "model": "claude-opus-4-5",
+            "max_tokens": 300,
+            "messages": [{"role": "user", "content": prompt}],
+        },
         timeout=30,
     )
-
     if r.status_code != 200:
-        log(f"Anthropic API error: {r.status_code} - {r.text}")
+        log(f"Anthropic error: {r.status_code} - {r.text}")
         r.raise_for_status()
 
     caption = r.json()["content"][0]["text"].strip()
-    log(f"Caption generated: {caption[:80]}...")
+    log(f"Caption: {caption[:80]}...")
     return caption
 
-def generate_image_prompt(caption, slot):
-    theme = SLOT_THEMES.get(slot, "daily inspiration")
-    log("Generating image prompt...")
+def get_image_url(slot):
+    log("Selecting image from Picsum (free, reliable)...")
+    # Pick a photo ID based on slot + today's date for variety
+    photo_ids = SLOT_PHOTO_IDS.get(slot, list(range(10, 300, 30)))
+    day_of_year = int(datetime.now(timezone.utc).strftime("%j"))
+    photo_id = photo_ids[day_of_year % len(photo_ids)]
 
-    prompt = (
-        f"Create a short image generation prompt (max 20 words) for an Instagram post.\n"
-        f"Theme: {theme}\n"
-        f"Style: photorealistic, bright, aesthetic, Instagram-worthy.\n"
-        f"Return ONLY the image prompt, nothing else."
-    )
+    # Picsum gives a direct 1080x1080 image — always publicly accessible
+    image_url = f"https://picsum.photos/id/{photo_id}/1080/1080"
 
-    headers = {
-        "x-api-key": ANTHROPIC_KEY,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-    }
-
-    r = requests.post(
-        "https://api.anthropic.com/v1/messages",
-        headers=headers,
-        json={
-            "model": "claude-opus-4-5",
-            "max_tokens": 80,
-            "messages": [{"role": "user", "content": prompt}],
-        },
-        timeout=20,
-    )
-
+    # Resolve the redirect to get the final direct URL
+    log(f"Resolving image URL (Picsum ID: {photo_id})...")
+    r = requests.get(image_url, timeout=20, allow_redirects=True)
     if r.status_code != 200:
-        log(f"Anthropic API error: {r.status_code} - {r.text}")
-        r.raise_for_status()
+        raise RuntimeError(f"Image not reachable: {r.status_code}")
 
-    img_prompt = r.json()["content"][0]["text"].strip()
-    log(f"Image prompt: {img_prompt}")
-    return img_prompt
-
-def generate_image_url(img_prompt, slot):
-    log("Generating image via Pollinations.ai...")
-    safe_prompt = requests.utils.quote(img_prompt)
-    seed = int(slot) * 1000 + int(datetime.now(timezone.utc).strftime("%j"))
-    image_url = (
-        f"https://image.pollinations.ai/prompt/{safe_prompt}"
-        f"?width=1080&height=1080&seed={seed}&nologo=true&enhance=true"
-    )
-    log(f"Verifying image URL...")
-    check = requests.head(image_url, timeout=30, allow_redirects=True)
-    if check.status_code != 200:
-        raise RuntimeError(f"Image URL not reachable: {check.status_code}")
-    log(f"Image URL ready!")
-    return image_url
+    final_url = r.url
+    log(f"Image URL ready: {final_url[:80]}...")
+    return final_url
 
 def create_container(image_url, caption):
+    log("Uploading to Instagram...")
     r = requests.post(f"{BASE_IG}/media", data={
         "image_url": image_url,
         "caption": caption,
@@ -166,7 +143,7 @@ def publish(container_id):
     log(f"Published! Post ID: {data['id']}")
     return data["id"]
 
-def save_log(slot, status, post_id="", caption="", image_url="", error=""):
+def save_log(slot, status, post_id="", caption="", error=""):
     entries = []
     if os.path.exists(LOG_FILE):
         with open(LOG_FILE) as f:
@@ -198,17 +175,16 @@ def main():
         log(f"ERROR: Missing secrets: {', '.join(missing)}")
         sys.exit(1)
 
-    log(f"API Key loaded: sk-ant-...{ANTHROPIC_KEY[-6:] if len(ANTHROPIC_KEY) > 6 else '???'}")
+    log(f"API Key loaded: sk-ant-...{ANTHROPIC_KEY[-6:]}")
 
     try:
-        caption = generate_caption(POST_SLOT)
-        img_prompt = generate_image_prompt(caption, POST_SLOT)
-        image_url = generate_image_url(img_prompt, POST_SLOT)
+        caption   = generate_caption(POST_SLOT)
+        image_url = get_image_url(POST_SLOT)
         container_id = create_container(image_url, caption)
         if not wait_container(container_id):
             raise TimeoutError("Container never reached FINISHED state.")
         post_id = publish(container_id)
-        save_log(POST_SLOT, "success", post_id, caption, image_url)
+        save_log(POST_SLOT, "success", post_id, caption)
         print(f"\n✅  Slot {POST_SLOT} posted successfully!\n")
     except Exception as e:
         log(f"FAILED: {e}")
