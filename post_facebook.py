@@ -1,8 +1,6 @@
 """
 Facebook Auto-Poster for iLovekaraikudi.
-Claude generates caption + search keyword.
-Unsplash finds a relevant matching image.
-Posts to Facebook Page via Graph API.
+Uses Pexels API for content-matched images.
 """
 import os, sys, json, time, requests
 from datetime import datetime, timezone
@@ -10,44 +8,21 @@ from datetime import datetime, timezone
 FB_PAGE_ID    = os.environ.get("FB_PAGE_ID", "")
 FB_PAGE_TOKEN = os.environ.get("FB_PAGE_TOKEN", "")
 ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+PEXELS_KEY    = os.environ.get("PEXELS_API_KEY", "")
 POST_SLOT     = os.environ.get("POST_SLOT", "1")
 
 BASE_FB  = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}"
 LOG_FILE = "post_log.json"
 
 SLOT_THEMES = {
-    "1": {
-        "topic": "Karaikudi morning and daily life culture",
-        "image_search": "Tamil Nadu village morning temple",
-    },
-    "2": {
-        "topic": "Karaikudi heritage architecture and Chettinad mansions",
-        "image_search": "Chettinad mansion palace architecture heritage",
-    },
-    "3": {
-        "topic": "Karaikudi famous food and Chettinad cuisine",
-        "image_search": "Chettinad food spices South Indian cuisine",
-    },
-    "4": {
-        "topic": "Notable person or celebrity born in or connected to Karaikudi or Chettinad",
-        "image_search": "Tamil Nadu heritage culture famous landmark",
-    },
-    "5": {
-        "topic": "Fun interactive question for Karaikudi locals and fans to answer",
-        "image_search": "Karaikudi street market Tamil Nadu local life",
-    },
-    "6": {
-        "topic": "Karaikudi temples art and cultural festivals",
-        "image_search": "South India Hindu temple festival Tamil Nadu",
-    },
-    "7": {
-        "topic": "Kollywood Tamil cinema connection to Karaikudi and Chettinad",
-        "image_search": "Tamil cinema vintage film South India",
-    },
-    "8": {
-        "topic": "Inspirational quote and pride post about Karaikudi Tamil culture",
-        "image_search": "Tamil Nadu sunset landscape heritage pride",
-    },
+    "1": {"topic": "Karaikudi morning and daily life culture", "image_query": "Tamil Nadu India morning village"},
+    "2": {"topic": "Karaikudi heritage architecture and Chettinad mansions", "image_query": "India heritage palace mansion architecture"},
+    "3": {"topic": "Karaikudi famous food and Chettinad cuisine", "image_query": "South Indian food spices curry"},
+    "4": {"topic": "Notable person or celebrity connected to Karaikudi Chettinad", "image_query": "Tamil Nadu India culture heritage"},
+    "5": {"topic": "Fun interactive question for Karaikudi locals and fans", "image_query": "India street food market local"},
+    "6": {"topic": "Karaikudi temples art and cultural festivals", "image_query": "South India Hindu temple festival"},
+    "7": {"topic": "Kollywood Tamil cinema connection to Karaikudi Chettinad", "image_query": "India vintage cinema culture"},
+    "8": {"topic": "Inspirational quote and pride post about Karaikudi Tamil culture", "image_query": "Tamil Nadu India sunset landscape"},
 }
 
 def log(msg):
@@ -55,29 +30,28 @@ def log(msg):
 
 def generate_caption_and_keywords(slot):
     theme = SLOT_THEMES.get(slot, SLOT_THEMES["1"])
-    log(f"Generating post for slot {slot}: {theme['topic']}")
+    log(f"Generating caption for slot {slot}: {theme['topic']}")
 
-    prompt = f"""You are the content creator for the Facebook page 'iLovekaraikudi' — celebrating Karaikudi, Chettinad, and Tamil culture.
+    prompt = f"""You are the content creator for 'iLovekaraikudi' Facebook page celebrating Karaikudi, Chettinad and Tamil culture.
 
 Write ONE engaging Facebook post about: {theme['topic']}
 
 Requirements:
-- Write in English (include 1-2 Tamil words with meaning where natural)
+- English with 1-2 Tamil words (with meaning) where natural
 - 3-5 sentences, warm and proud tone
-- Include 2-3 relevant emojis
-- End with 4-6 hashtags like #Karaikudi #Chettinad #TamilCulture #iLoveKaraikudi
-- Include a specific fact, name, or detail about Karaikudi
-- Feel authentic like a local who deeply loves Karaikudi
+- 2-3 relevant emojis
+- End with 4-6 hashtags: #Karaikudi #Chettinad #TamilCulture #iLoveKaraikudi
+- Include a specific fact, name or detail about Karaikudi
 - Do NOT start with "Here is" or any preamble
 
-After the post, on a NEW LINE write exactly:
-IMAGE_KEYWORDS: [3-5 specific keywords for finding a relevant photo for this post]
+After the post on a NEW LINE write:
+PEXELS_SEARCH: [3-4 English words to search a relevant photo]
 
-Example format:
-Good morning from Karaikudi! ☀️ ...post text...
+Example:
+Good morning Karaikudi! ☀️ ...post...
 #Karaikudi #Chettinad
 
-IMAGE_KEYWORDS: Chettinad temple morning Tamil Nadu"""
+PEXELS_SEARCH: Tamil Nadu temple morning"""
 
     r = requests.post(
         "https://api.anthropic.com/v1/messages",
@@ -99,51 +73,50 @@ IMAGE_KEYWORDS: Chettinad temple morning Tamil Nadu"""
 
     full_text = r.json()["content"][0]["text"].strip()
 
-    # Split caption and image keywords
-    if "IMAGE_KEYWORDS:" in full_text:
-        parts = full_text.split("IMAGE_KEYWORDS:")
+    if "PEXELS_SEARCH:" in full_text:
+        parts = full_text.split("PEXELS_SEARCH:")
         caption = parts[0].strip()
-        keywords = parts[1].strip()
+        search_query = parts[1].strip()
     else:
         caption = full_text
-        keywords = theme["image_search"]
+        search_query = theme["image_query"]
 
     log(f"Caption: {caption[:80]}...")
-    log(f"Image keywords: {keywords}")
-    return caption, keywords
+    log(f"Pexels search: {search_query}")
+    return caption, search_query
 
-def get_relevant_image(keywords, slot):
-    """
-    Fetch a relevant image from Unsplash using keywords.
-    Unsplash source gives a direct image URL matching the search term.
-    """
-    log(f"Fetching relevant image for: {keywords}")
+def get_pexels_image(query, slot):
+    log(f"Searching Pexels for: {query}")
 
-    # Unsplash Source API — free, no key needed, returns topic-matched image
-    safe_keywords = requests.utils.quote(keywords)
-    seed = int(slot) * 100 + int(datetime.now(timezone.utc).strftime("%j"))
+    # Try with the AI-generated query first
+    for search_term in [query, SLOT_THEMES.get(slot, {}).get("image_query", "India culture")]:
+        try:
+            r = requests.get(
+                "https://api.pexels.com/v1/search",
+                headers={"Authorization": PEXELS_KEY},
+                params={
+                    "query": search_term,
+                    "per_page": 10,
+                    "orientation": "landscape",
+                    "size": "large",
+                },
+                timeout=15,
+            )
+            if r.status_code == 200:
+                photos = r.json().get("photos", [])
+                if photos:
+                    # Pick different photo each day using day of year
+                    day = int(datetime.now(timezone.utc).strftime("%j"))
+                    photo = photos[day % len(photos)]
+                    image_url = photo["src"]["large2x"]
+                    photographer = photo.get("photographer", "Pexels")
+                    log(f"Got Pexels image by {photographer}: {image_url[:70]}...")
+                    return image_url
+        except Exception as e:
+            log(f"Pexels attempt failed: {e}")
+            continue
 
-    # Try Unsplash source first (free, topic-matched)
-    unsplash_url = f"https://source.unsplash.com/1200x630/?{safe_keywords}&sig={seed}"
-
-    try:
-        r = requests.get(unsplash_url, timeout=20, allow_redirects=True)
-        if r.status_code == 200 and "image" in r.headers.get("content-type", ""):
-            log(f"Got Unsplash image: {r.url[:80]}...")
-            return r.url
-    except Exception as e:
-        log(f"Unsplash failed: {e}, trying fallback...")
-
-    # Fallback: Picsum with slot-based seed
-    fallback_ids = [10, 15, 20, 25, 30, 37, 42, 48]
-    pid = fallback_ids[int(slot) - 1]
-    fallback_url = f"https://picsum.photos/id/{pid}/1200/630"
-    r = requests.get(fallback_url, timeout=20, allow_redirects=True)
-    if r.status_code == 200:
-        log(f"Using fallback image: {r.url[:80]}...")
-        return r.url
-
-    raise RuntimeError("Could not get any image")
+    raise RuntimeError("Could not get image from Pexels — check PEXELS_API_KEY secret")
 
 def post_to_facebook(caption, image_url):
     log("Posting to Facebook Page...")
@@ -165,7 +138,7 @@ def post_to_facebook(caption, image_url):
     log(f"Posted! ID: {data['id']}")
     return data["id"]
 
-def save_log(slot, status, post_id="", caption="", keywords="", error=""):
+def save_log(slot, status, post_id="", caption="", query="", error=""):
     entries = []
     if os.path.exists(LOG_FILE):
         with open(LOG_FILE) as f:
@@ -177,7 +150,7 @@ def save_log(slot, status, post_id="", caption="", keywords="", error=""):
         "status": status,
         "post_id": post_id,
         "caption_preview": caption[:120],
-        "image_keywords": keywords,
+        "image_query": query,
         "error": error,
     })
     with open(LOG_FILE, "w") as f:
@@ -192,16 +165,17 @@ def main():
         "FB_PAGE_ID": FB_PAGE_ID,
         "FB_PAGE_TOKEN": FB_PAGE_TOKEN,
         "ANTHROPIC_API_KEY": ANTHROPIC_KEY,
+        "PEXELS_API_KEY": PEXELS_KEY,
     }.items() if not v]
     if missing:
         log(f"ERROR: Missing secrets: {', '.join(missing)}")
         sys.exit(1)
 
     try:
-        caption, keywords = generate_caption_and_keywords(POST_SLOT)
-        image_url = get_relevant_image(keywords, POST_SLOT)
+        caption, query = generate_caption_and_keywords(POST_SLOT)
+        image_url = get_pexels_image(query, POST_SLOT)
         post_id = post_to_facebook(caption, image_url)
-        save_log(POST_SLOT, "success", post_id, caption, keywords)
+        save_log(POST_SLOT, "success", post_id, caption, query)
         print(f"\n✅  Slot {POST_SLOT} posted to iLoveKaraikudi!\n")
     except Exception as e:
         log(f"FAILED: {e}")
