@@ -1,1 +1,71 @@
-hhhhhh
+name: Instagram Daily 8 AI Posts
+
+on:
+  schedule:
+    - cron: '0 7 * * *'    # Slot 1 — 7:00 AM UTC
+    - cron: '0 9 * * *'    # Slot 2 — 9:00 AM UTC
+    - cron: '0 11 * * *'   # Slot 3 — 11:00 AM UTC
+    - cron: '0 13 * * *'   # Slot 4 — 1:00 PM UTC
+    - cron: '0 15 * * *'   # Slot 5 — 3:00 PM UTC
+    - cron: '0 17 * * *'   # Slot 6 — 5:00 PM UTC
+    - cron: '0 19 * * *'   # Slot 7 — 7:00 PM UTC
+    - cron: '0 21 * * *'   # Slot 8 — 9:00 PM UTC
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: 'Slot to run (1-8), or leave blank for auto'
+        required: false
+        default: 'auto'
+
+jobs:
+  post-to-instagram:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Determine post slot
+        id: slot
+        run: |
+          INPUT="${{ github.event.inputs.slot }}"
+          if [ -n "$INPUT" ] && [ "$INPUT" != "auto" ]; then
+            echo "slot=$INPUT" >> $GITHUB_OUTPUT
+          else
+            HOUR=$(date -u +"%H" | sed 's/^0//')
+            case "$HOUR" in
+              7)  SLOT=1 ;;
+              9)  SLOT=2 ;;
+              11) SLOT=3 ;;
+              13) SLOT=4 ;;
+              15) SLOT=5 ;;
+              17) SLOT=6 ;;
+              19) SLOT=7 ;;
+              21) SLOT=8 ;;
+              *)  SLOT=1 ;;
+            esac
+            echo "slot=$SLOT" >> $GITHUB_OUTPUT
+          fi
+          echo "Running slot: $(grep slot $GITHUB_OUTPUT | cut -d= -f2)"
+
+      - name: Generate AI content + Post to Instagram
+        env:
+          IG_USER_ID:        ${{ secrets.IG_USER_ID }}
+          IG_ACCESS_TOKEN:   ${{ secrets.IG_ACCESS_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          INSTAGRAM_NICHE:   ${{ secrets.INSTAGRAM_NICHE }}
+          POST_SLOT:         ${{ steps.slot.outputs.slot }}
+        run: python post_instagram.py
+
+      - name: Upload activity log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-log-${{ github.run_id }}
+          path: post_log.json
+          retention-days: 30
