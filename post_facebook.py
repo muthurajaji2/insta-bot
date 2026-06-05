@@ -1,8 +1,10 @@
 """
 Facebook Auto-Poster for iLovekaraikudi.
-Uses Pexels API for content-matched images.
+4 posts per day at peak hours.
+All posts are engaging questions to followers about Karaikudi.
+Never uses words: Nagarathar, Chettinad
 """
-import os, sys, json, time, requests
+import os, sys, json, requests
 from datetime import datetime, timezone
 
 FB_PAGE_ID    = os.environ.get("FB_PAGE_ID", "")
@@ -14,44 +16,110 @@ POST_SLOT     = os.environ.get("POST_SLOT", "1")
 BASE_FB  = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}"
 LOG_FILE = "post_log.json"
 
+# 4 slots — peak hours IST
+# Slot 1: 8:00 AM  (morning peak)
+# Slot 2: 12:00 PM (lunch peak)
+# Slot 3: 6:00 PM  (evening peak)
+# Slot 4: 9:00 PM  (night peak)
+
 SLOT_THEMES = {
-    "1": {"topic": "Karaikudi morning and daily life culture", "image_query": "Tamil Nadu India morning village"},
-    "2": {"topic": "Karaikudi heritage architecture and Chettinad mansions", "image_query": "India heritage palace mansion architecture"},
-    "3": {"topic": "Karaikudi famous food and Chettinad cuisine", "image_query": "South Indian food spices curry"},
-    "4": {"topic": "Notable person or celebrity connected to Karaikudi Chettinad", "image_query": "Tamil Nadu India culture heritage"},
-    "5": {"topic": "Fun interactive question for Karaikudi locals and fans", "image_query": "India street food market local"},
-    "6": {"topic": "Karaikudi temples art and cultural festivals", "image_query": "South India Hindu temple festival"},
-    "7": {"topic": "Kollywood Tamil cinema connection to Karaikudi Chettinad", "image_query": "India vintage cinema culture"},
-    "8": {"topic": "Inspirational quote and pride post about Karaikudi Tamil culture", "image_query": "Tamil Nadu India sunset landscape"},
+    "1": {
+        "time": "8:00 AM",
+        "topic": "morning question about Karaikudi food, daily routine or childhood memory",
+        "image_query": "South Indian breakfast food morning",
+        "example_questions": [
+            "What is your favourite Karaikudi breakfast? 🍽️",
+            "Which street in Karaikudi holds your best childhood memory?",
+            "Name one food from Karaikudi you miss the most!",
+        ],
+    },
+    "2": {
+        "time": "12:00 PM",
+        "topic": "lunchtime question about Karaikudi famous places, landmarks or hidden gems",
+        "image_query": "Tamil Nadu India heritage landmark famous place",
+        "example_questions": [
+            "Which is your favourite spot in Karaikudi?",
+            "Best place to eat in Karaikudi — drop your recommendation!",
+            "Which Karaikudi landmark makes you proud?",
+        ],
+    },
+    "3": {
+        "time": "6:00 PM",
+        "topic": "evening question about Karaikudi culture, festivals, traditions or temples",
+        "image_query": "South India temple festival culture evening",
+        "example_questions": [
+            "Which Karaikudi festival is closest to your heart?",
+            "Share one tradition from Karaikudi that you love!",
+            "Which temple in Karaikudi do you visit first when you come home?",
+        ],
+    },
+    "4": {
+        "time": "9:00 PM",
+        "topic": "night question about Karaikudi pride, memories, people or Kollywood connections",
+        "image_query": "Tamil Nadu India night culture pride",
+        "example_questions": [
+            "What makes you proud to be from Karaikudi?",
+            "Tag someone from Karaikudi who inspires you!",
+            "Which Tamil movie shot in Karaikudi is your all-time favourite?",
+        ],
+    },
+}
+
+BANNED_WORDS = {
+    "Nagarathar": "Karaikudi community",
+    "nagarathar": "Karaikudi community",
+    "NAGARATHAR": "KARAIKUDI COMMUNITY",
+    "Chettinad": "Karaikudi",
+    "chettinad": "Karaikudi",
+    "CHETTINAD": "KARAIKUDI",
 }
 
 def log(msg):
     print(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] {msg}")
 
-def generate_caption_and_keywords(slot):
+def clean_text(text):
+    for word, replacement in BANNED_WORDS.items():
+        text = text.replace(word, replacement)
+    return text
+
+def generate_question_post(slot):
     theme = SLOT_THEMES.get(slot, SLOT_THEMES["1"])
-    log(f"Generating caption for slot {slot}: {theme['topic']}")
+    log(f"Generating question post for slot {slot} ({theme['time']} IST)")
 
-    prompt = f"""You are the content creator for 'iLovekaraikudi' Facebook page celebrating Karaikudi, Chettinad and Tamil culture.
+    examples = "\n".join([f"- {q}" for q in theme["example_questions"]])
 
-Write ONE engaging Facebook post about: {theme['topic']}
+    prompt = f"""You are the content creator for 'iLovekaraikudi' Facebook page.
 
-Requirements:
-- English with 1-2 Tamil words (with meaning) where natural
-- 3-5 sentences, warm and proud tone
-- 2-3 relevant emojis
-- End with 4-6 hashtags: #Karaikudi #Chettinad #TamilCulture #iLoveKaraikudi
-- Include a specific fact, name or detail about Karaikudi
-- Do NOT start with "Here is" or any preamble
+Your job: Write ONE highly engaging QUESTION post for Karaikudi followers.
+
+Time of post: {theme['time']} IST
+Topic: {theme['topic']}
+
+Example question styles (do NOT copy exactly, write something fresh and different):
+{examples}
+
+STRICT RULES:
+- NEVER use the word "Nagarathar" — forbidden
+- NEVER use the word "Chettinad" — forbidden
+- Use "Karaikudi" instead always
+
+Post format:
+- Start with a fun emoji + attention-grabbing opening line
+- Ask ONE clear engaging question that locals will want to answer
+- Add a fun prompt like "Comment below 👇" or "Tag a friend!" or "Drop your answer!"
+- 2-3 emojis total
+- End with 3-4 hashtags: #Karaikudi #iLoveKaraikudi #KaraikudiLovers #TamilCulture
+- Keep it SHORT — max 4 lines total
+- Sound like a fun local friend, not a brand
 
 After the post on a NEW LINE write:
-PEXELS_SEARCH: [3-4 English words to search a relevant photo]
+PEXELS_SEARCH: [3-4 words for a relevant image]
 
-Example:
-Good morning Karaikudi! ☀️ ...post...
-#Karaikudi #Chettinad
+Example output:
+☀️ Rise and shine Karaikudi family! What is the one breakfast dish that takes you straight back home? Drop your answer below 👇
+#Karaikudi #iLoveKaraikudi #KaraikudiLovers
 
-PEXELS_SEARCH: Tamil Nadu temple morning"""
+PEXELS_SEARCH: South Indian breakfast idli dosa"""
 
     r = requests.post(
         "https://api.anthropic.com/v1/messages",
@@ -62,7 +130,7 @@ PEXELS_SEARCH: Tamil Nadu temple morning"""
         },
         json={
             "model": "claude-opus-4-5",
-            "max_tokens": 500,
+            "max_tokens": 400,
             "messages": [{"role": "user", "content": prompt}],
         },
         timeout=30,
@@ -81,52 +149,40 @@ PEXELS_SEARCH: Tamil Nadu temple morning"""
         caption = full_text
         search_query = theme["image_query"]
 
-    log(f"Caption: {caption[:80]}...")
-    log(f"Pexels search: {search_query}")
+    caption = clean_text(caption)
+    search_query = clean_text(search_query)
+
+    log(f"Post: {caption[:100]}...")
+    log(f"Image search: {search_query}")
     return caption, search_query
 
 def get_pexels_image(query, slot):
-    log(f"Searching Pexels for: {query}")
-
-    # Try with the AI-generated query first
+    log(f"Searching Pexels: {query}")
     for search_term in [query, SLOT_THEMES.get(slot, {}).get("image_query", "India culture")]:
         try:
             r = requests.get(
                 "https://api.pexels.com/v1/search",
                 headers={"Authorization": PEXELS_KEY},
-                params={
-                    "query": search_term,
-                    "per_page": 10,
-                    "orientation": "landscape",
-                    "size": "large",
-                },
+                params={"query": search_term, "per_page": 10, "orientation": "landscape", "size": "large"},
                 timeout=15,
             )
             if r.status_code == 200:
                 photos = r.json().get("photos", [])
                 if photos:
-                    # Pick different photo each day using day of year
                     day = int(datetime.now(timezone.utc).strftime("%j"))
                     photo = photos[day % len(photos)]
-                    image_url = photo["src"]["large2x"]
-                    photographer = photo.get("photographer", "Pexels")
-                    log(f"Got Pexels image by {photographer}: {image_url[:70]}...")
-                    return image_url
+                    url = photo["src"]["large2x"]
+                    log(f"Image by {photo.get('photographer','Pexels')}: {url[:60]}...")
+                    return url
         except Exception as e:
-            log(f"Pexels attempt failed: {e}")
-            continue
-
-    raise RuntimeError("Could not get image from Pexels — check PEXELS_API_KEY secret")
+            log(f"Pexels error: {e}")
+    raise RuntimeError("Could not get image from Pexels")
 
 def post_to_facebook(caption, image_url):
-    log("Posting to Facebook Page...")
+    log("Posting to Facebook...")
     r = requests.post(
         f"{BASE_FB}/photos",
-        data={
-            "url": image_url,
-            "message": caption,
-            "access_token": FB_PAGE_TOKEN,
-        },
+        data={"url": image_url, "message": caption, "access_token": FB_PAGE_TOKEN},
         timeout=30,
     )
     if r.status_code != 200:
@@ -158,7 +214,7 @@ def save_log(slot, status, post_id="", caption="", query="", error=""):
 
 def main():
     print(f"\n{'='*60}")
-    print(f"  iLoveKaraikudi FB Poster  |  Slot {POST_SLOT}  |  {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC")
+    print(f"  iLoveKaraikudi  |  Slot {POST_SLOT}  |  {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC")
     print(f"{'='*60}\n")
 
     missing = [k for k, v in {
@@ -172,11 +228,11 @@ def main():
         sys.exit(1)
 
     try:
-        caption, query = generate_caption_and_keywords(POST_SLOT)
+        caption, query = generate_question_post(POST_SLOT)
         image_url = get_pexels_image(query, POST_SLOT)
         post_id = post_to_facebook(caption, image_url)
         save_log(POST_SLOT, "success", post_id, caption, query)
-        print(f"\n✅  Slot {POST_SLOT} posted to iLoveKaraikudi!\n")
+        print(f"\n✅  Slot {POST_SLOT} posted!\n")
     except Exception as e:
         log(f"FAILED: {e}")
         save_log(POST_SLOT, "error", error=str(e))
