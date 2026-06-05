@@ -1,21 +1,17 @@
-name: Facebook Daily 8 AI Posts
+name: iLoveKaraikudi 4 Daily Posts
 
 on:
   schedule:
-    - cron: '30 1 * * *'
-    - cron: '30 3 * * *'
-    - cron: '30 5 * * *'
-    - cron: '30 7 * * *'
-    - cron: '30 9 * * *'
-    - cron: '30 11 * * *'
-    - cron: '30 13 * * *'
-    - cron: '30 15 * * *'
+    - cron: '30 2 * * *'   # Slot 1 — 8:00 AM IST
+    - cron: '30 6 * * *'   # Slot 2 — 12:00 PM IST
+    - cron: '30 12 * * *'  # Slot 3 — 6:00 PM IST
+    - cron: '30 15 * * *'  # Slot 4 — 9:00 PM IST
   workflow_dispatch:
     inputs:
       slot:
-        description: 'Slot to run (1-8)'
+        description: 'Slot to run (1-4)'
         required: false
-        default: 'auto'
+        default: '1'
 
 jobs:
   post-to-facebook:
@@ -30,36 +26,13 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      - name: Determine post slot
-        id: slot
-        run: |
-          INPUT="${{ github.event.inputs.slot }}"
-          if [ -n "$INPUT" ] && [ "$INPUT" != "auto" ]; then
-            echo "slot=$INPUT" >> $GITHUB_OUTPUT
-          else
-            HOUR=$(date -u +"%H" | sed 's/^0//')
-            case "$HOUR" in
-              1)  SLOT=1 ;;
-              3)  SLOT=2 ;;
-              5)  SLOT=3 ;;
-              7)  SLOT=4 ;;
-              9)  SLOT=5 ;;
-              11) SLOT=6 ;;
-              13) SLOT=7 ;;
-              15) SLOT=8 ;;
-              *)  SLOT=1 ;;
-            esac
-            echo "slot=$SLOT" >> $GITHUB_OUTPUT
-          fi
-          echo "Running slot: $(grep slot $GITHUB_OUTPUT | cut -d= -f2)"
-
       - name: Post to Facebook
         env:
           FB_PAGE_ID:        ${{ secrets.FB_PAGE_ID }}
           FB_PAGE_TOKEN:     ${{ secrets.FB_PAGE_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           PEXELS_API_KEY:    ${{ secrets.PEXELS_API_KEY }}
-          POST_SLOT:         ${{ steps.slot.outputs.slot }}
+          POST_SLOT:         ${{ github.event.inputs.slot || '1' }}
         run: python post_facebook.py
 
       - name: Upload log
